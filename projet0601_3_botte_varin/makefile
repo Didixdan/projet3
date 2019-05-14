@@ -25,7 +25,7 @@ OBJETS_O = $(OBJETS) $(EXEC_O)
 
 CC = gcc
 CCFLAGS = -Wall -Werror -O3 -ansi -pedantic -D_XOPEN_SOURCE -D_POSIX_C_SOURCE=199309L
-CCLIBS = -lncurses
+CCLIBS = -lncurses -lrt
 
 #
 # REGLES
@@ -81,7 +81,7 @@ archive: clean
 	@echo "Termine."
 
 # DEPENDANCES
-carte.o: carte.c structures.h ncurses.h carte.h
+carte.o: carte.c structures.h carte.h ncurses.h
 ncurses.o: ncurses.c ncurses.h
 client.o: client.c structures.h carte.h ncurses.h
 serveur.o: serveur.c structures.h

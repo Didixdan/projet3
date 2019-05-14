@@ -22,6 +22,8 @@
 #include "structures.h"
 #include "carte.h"
 
+
+
 int getLargeurCarte(int fdCarte){
     unsigned char largeur;
 
@@ -183,19 +185,39 @@ void remplireFenCarteStruct(WINDOW * fen,requete_envCMS_t *carte) {
   }
   }
 
+
 /**
   * Remplie la fenetre passer en paramètre avec les nouvelles informations
   * @param fen la fenetre de la carte à modifier
-  * @param r la structure de la nouvelle carte
+  * @param req la structure de l'état des lemmings
   **/
-void majWindowJeu(WINDOW *fen,requete_EtatJeu_t r) {
-  /*int posAbs;  position absolue dans le tableau des cases */
-  /*while(pos=y==0?x:y*30+x;*/
+void majWindowJeu(WINDOW *fen,requete_t requete) {
+  int k=0;
+  switch(requete.type) {
+    case TYPE_ETAT_JEU:
+      while(k!=(NBLEMMINGS*2)) {
+        if(requete.req.r2.etatLemmings[k].valeur==VAL_LEMMING_PLATEAU)
+          addLemings(fen,VAL_LEMMING_ENNEMI,requete.req.r2.etatLemmings[k].posY,requete.req.r2.etatLemmings[k].posX);
+        k++;
+      }
+      break;
+    case TYPE_AL:
+      addLemings(fen,VAL_LEMMING_ENNEMI,requete.req.r5.posY,requete.req.r5.posX);
+      break;
+  }
+  wrefresh(fen);
 }
 
+/**
+  * Ajouter un lemmings sur le fenêtre fen
+  * @param fen la fenetre de la carte à modifier
+  * @param type lemmings allié ou ennemi (0 ou 1)
+  * @param y position Y par rapport à la fenetre
+  * @param x position X par rapport à la fenetre
+  **/
 void addLemings(WINDOW* fen,int type,int y,int x) {
   wattron(fen,COLOR_PAIR(8+type));
-  mvwaddch(fen,y,x,' ');
+  mvwaddch(fen,y,x,'2'+type);
   wattroff(fen,COLOR_PAIR(8+type));
 }
 
@@ -210,12 +232,64 @@ void addLemings(WINDOW* fen,int type,int y,int x) {
 void cliqueCarte(WINDOW*fen,int*nbLemmings,int posY,int posX,int modeJeu) {
   switch(modeJeu) {
     case 0:
-      if(nbLemmings>0) {
+      if((*nbLemmings)>0) {
         addLemings(fen,0,posY,posX);
         (*nbLemmings)--;
       }
       break;
   }
+  wrefresh(fen);
+}
+
+
+/**
+  * Fait se déplacer les lemmings de manière aléatoire
+  *
+  *
+  **/
+void bougerLemming(WINDOW * fen,requete_t etatJeu,requete_envCMS_t carte) {
+  /*int dir=0;
+  int pos=y==0?x:y*carte.largeur+x;
+  int oldPos=0;
+  int ok=0;
+  unsigned char val;
+	srand(time(NULL));
+  *
+    * Direction choisi aléatoirement
+    * 0 pour haut, 1 pour bas, 2 pour gauche, 3 pour droite
+    
+  printf("Je bouge ! %d;%d;%d\n",*position/30,*position%30,*position);
+  do {
+    dir=rand()%4;
+    oldPos=pos;
+    switch(dir) {
+      case 0:
+        pos-=carte.largeur; haut 
+        break;
+      case 1:
+        pos+=carte.largeur; bas 
+        break;
+      case 2:
+        pos-=1; gauche 
+        break;
+      case 3:
+        pos+=1; droite 
+        break;
+    }
+    if(pos<0 || pos>(LARGEURC*HAUTEURC)) {pos=oldPos;continue;}
+    val = carte.cases[pos];
+    if(val>'0') {pos=oldPos;continue;}
+    if(val=='0') {
+      addLemings(fen,VAL_LEMMING_ALLIE,y,x);
+       envoyer ça au master 
+      ok=1;
+    }
+    printf("(Type;CaseTypeNew;pos) -> (%d;%d;%d)\n",val,carte.cases[pos],pos);
+  }while(!ok);
+
+  *position=pos;
+*/
+  wrefresh(fen);
 }
 
 /**
@@ -251,36 +325,140 @@ void deplaceInFileTo(int fdCarte,int y,int x)
   **/
 WINDOW* afficherLegende(int nbLemmings) {
     WINDOW * legende;
+    WINDOW * boutonPlus;
+    WINDOW * boutonMoins;
 
-    legende = newwin(6,19,0,LARGEURC+1);
+    legende = newwin(12,27,0,LARGEURC+1);
     wbkgd(legende,COLOR_PAIR(15));
     box(legende,0,0);
     
     wmove(legende,1,1);
     wprintw(legende,"Lemmings : %d/%d",nbLemmings,nbLemmings);
 
+    boutonPlus = derwin(legende,3,4,3,1);
+    boutonMoins = derwin(legende,3,4,3,6);
+
+    mvwaddch(boutonPlus,1,1,'+');
+    mvwaddch(boutonMoins,1,1,'-');
+
+    wbkgd(boutonPlus,COLOR_PAIR(15));
+    wbkgd(boutonMoins,COLOR_PAIR(15));
+
+    box(boutonPlus,0,0);
+    box(boutonMoins,0,0);
+
+    wrefresh(boutonPlus);
+    wrefresh(boutonMoins);
+
+
     wattron(legende,COLOR_PAIR(8));
-    mvwaddch(legende,2,1,' ');
+    mvwaddch(legende,7,1,' ');
     wattroff(legende,COLOR_PAIR(8));
-    wmove(legende,2,3);
+    wmove(legende,7,3);
     wprintw(legende,"Lemmings Allié");
 
     
     wattron(legende,COLOR_PAIR(9));
-    mvwaddch(legende,3,1,' ');
+    mvwaddch(legende,8,1,' ');
     wattroff(legende,COLOR_PAIR(9));
-    wmove(legende,3,3);
+    wmove(legende,8,3);
     wprintw(legende,"Lemmings Ennemis");
 
     wattron(legende,COLOR_PAIR(11));
-    mvwaddch(legende,4,1,' ');
+    mvwaddch(legende,9,1,' ');
     wattroff(legende,COLOR_PAIR(11));
-    wmove(legende,4,3);
+    wmove(legende,9,3);
     wprintw(legende,"Mur");
+
+    
+    wmove(legende,10,1);
+    wprintw(legende,"Apparition lemmings : 10");
 
     return legende;
 }
 
+int indiceMaxLemming(int * tabLemming,int type) {
+  int i;
+  int indice=0;
+  for(i=0;i<NBLEMMINGS;i++) {
+    if(tabLemming[i]==type) {
+      if(i>indice) indice=i;
+    }
+  }
+  return indice;
+}
+int indiceMinLemming(int * tabLemming, int type) {
+  int i;
+  int indice=5;
+  for(i=0;i<NBLEMMINGS;i++) {
+    if(tabLemming[i]==type) {
+      if(i<indice) indice=i;
+    }
+  }
+  return indice;
+}
+int aucunLemming(int * tabLemming, int type) {
+  int i;
+  int ok=1;
+  for(i=0;i<NBLEMMINGS;i++) {
+    if(tabLemming[i]==type) {
+      /* on quitte la boucle si on trouve un lemming du type passé */
+      ok=0;
+      i=NBLEMMINGS;
+    }
+  }
+  return ok;
+}
+
+/**
+ * Fonction qui gère l'affichage du numéro du lemming choisis pour ajout
+ * @param legende la fenètre de la légende pour modif
+ * @param numLemming le numéro du lemming avant le clique
+ * @param tabLemming le tableau des lemmings (pour afficher seulement ceux non posés)
+ * @param type type du clique (0 appuie sur le '+' et 1 appuie sur le '-')
+ */ 
+void cliqueNumLemming(WINDOW * legende,int * numLemming,int * tabLemming,int type) {
+
+  /* on test si il reste encore des lemmings à placer */
+  if(aucunLemming(tabLemming,TYPE_LEMMING_NON_PLACER)==0) {
+    if(tabLemming[(*numLemming)-1]==0) {
+      if(type==BOUTON_PLUS_LEG && (*numLemming)<indiceMaxLemming(tabLemming,TYPE_LEMMING_NON_PLACER)+1) (*numLemming)++;
+      else if(type==BOUTON_MOINS_LEG && (*numLemming)>indiceMinLemming(tabLemming,TYPE_LEMMING_NON_PLACER)+1) (*numLemming)--;
+    }
+    
+    if(tabLemming[(*numLemming)-1]==1) {
+      if(type==BOUTON_PLUS_LEG && (*numLemming)==NBLEMMINGS) (*numLemming)=indiceMinLemming(tabLemming,TYPE_LEMMING_NON_PLACER)+1;
+      /*else if(type==BOUTON_MOINS_LEG && (*numLemming)==indiceMinLemmingNonPlace(tabLemming)+1) (*numLemming)=indiceMaxLemmingNonPlace(tabLemming)+1;*/
+      while(tabLemming[(*numLemming)-1]==1) {
+        if(type==BOUTON_PLUS_LEG && (*numLemming)<indiceMaxLemming(tabLemming,TYPE_LEMMING_NON_PLACER)+1) (*numLemming)++;
+        else if(type==BOUTON_MOINS_LEG && (*numLemming)>indiceMinLemming(tabLemming,TYPE_LEMMING_NON_PLACER)+1) (*numLemming)--;
+      }
+    }
+  }else (*numLemming)=0;
+
+  wmove(legende,2,1);
+  wclrtoeol(legende);
+  box(legende,0,0);
+  wprintw(legende,"Num lemming a placer : %d",(*numLemming));
+  wrefresh(legende);
+}
+
+void majTimerLegende(WINDOW * legende, timer_t timerid) {
+
+    struct itimerspec its;/*structure pour intervalle de temps entre chaque appel au signal*/
+    printf("MAJ ; ");
+    /* récupération du temps du timer */
+    if(timer_gettime(timerid,&its) == -1) {
+      perror("Erreur lors de la récupération du temps du timer ");
+      exit(EXIT_FAILURE);
+    }
+
+    wmove(legende,5,1);
+    wclrtoeol(legende);
+    wprintw(legende,"Apparition lemmings : %d",its.it_value.tv_sec);
+
+    wrefresh(legende);
+}
 /*
  * Modifier le nbr de lemmings de la légende
  * @param nbLemmings nombre de lemmings nécessaire afin de construire la légende 
@@ -288,7 +466,10 @@ WINDOW* afficherLegende(int nbLemmings) {
 void setNbLemmings(WINDOW* legende, int NewNbLemmings) {
     wmove(legende,1,1);
     wclrtoeol(legende);
+    box(legende,0,0);
     wprintw(legende,"Lemmings : %d/%d",NewNbLemmings,NBLEMMINGS);
+
+    wrefresh(legende);
 }
 
 /**
