@@ -12,6 +12,7 @@ void ncurses_initialiser() {
   noecho();             /* Desactive l'affichage des caracteres saisis */
   keypad(stdscr, TRUE);	/* Active les touches specifiques */
   refresh();            /* Met a jour l'affichage */
+  timeout(1000);    /*mettre le getch non bloquant */
   curs_set(FALSE);      /* Masque le curseur */
 }
 

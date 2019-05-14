@@ -24,6 +24,17 @@
 #define TYPE_DMP        13 /*Demande mise en pause*/
 #define TYPE_DSP        14 /*Demande sortie pause*/
 
+#define VAL_LEMMING_RETIRE 0
+#define VAL_LEMMING_PLATEAU 1
+#define VAL_LEMMING_MORT 2
+#define VAL_LEMMING_BLOQUE 3
+
+#define VAL_LEMMING_ALLIE 0
+#define VAL_LEMMING_ENNEMI 1
+
+#define TYPE_LEMMING_NON_PLACER 0
+#define TYPE_LEMMING_PLACER 1
+
 typedef struct {
     unsigned short portTCP;
 }requete_CMS_t;
@@ -41,7 +52,7 @@ typedef struct {
 
 
 typedef struct {
-    unsigned char valeur;
+    unsigned char valeur; /* 0(retiré), valeur = 1 (sur le plateau), valeur = 2 (mort), valeur = 3 (bloqué) */
     unsigned char posX;
     unsigned char posY;
 }requete_Etat_t;
