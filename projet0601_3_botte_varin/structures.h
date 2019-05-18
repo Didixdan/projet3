@@ -3,7 +3,7 @@
 
 /****************** Constante à modifier pour modifier le jeu ******************/
 
-#define LARGEURC    50 /* Correspond à la largeur max de la carte <--- Arbitraire */
+#define LARGEURC    50 /* Correspond àcases la largeur max de la carte <--- Arbitraire */
 #define HAUTEURC    25 /* Correspond à la hauteur max de la carte <--- Arbitraire */
 #define NBLEMMINGS  5 /* Correspond au nombre de lemmings max <--- Arbitraire */
 

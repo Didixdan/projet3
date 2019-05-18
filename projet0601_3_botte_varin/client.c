@@ -33,18 +33,27 @@
         - modification d'un tableau qui sera le tableau des lemming placé ou non (0 pour non placé 1 sinon)
         - modification de la fonction cliqueNumLemming qui affichera seulement les lemming non placé
 
- - faire le déplacement aléatoires des lemmings NOK
+ - faire le déplacement aléatoires des lemmings NOK -> MASTER qui déplace tous les lemmings et qui envoie l'état du jeu ensuite
  - ajouter les fonctionnalités voulues (retirer plateau, bloquer, exploser) --> Utiliser des touches différentes (F1,F2 etc)
  - Gérer la mise en pause du jeu ?? (touche du clavier)
 
  - URGENT : envoie du lemming ajouter à la fin du timer du SLAVE !!
+
+ - Actuellement je colore les murs en verts côté MASTER mais pas encore de déplacement de lemmings
+ 
+ L'ajout d'un lemming par le timer dans le master ajoute un lemming ennemi -> OK (ils avaient la même seed pour le rand)
+ 
+ lancer les applis avec temps d'intervalle pour random
+
+- ???? des caractères de merde apparaisse sur le master (764#H par ex)
+- problème de temps de synchro entre le clique sur le slave et la maj (même si ça vaut un ennemi c'est long à mort)
+- des lemmings apparaisse en ennemi sur le slave alors qu'ils sont allié sur master
  */
 #include <signal.h> /* Pour sigaction */
 #include <stdio.h> /* Pour printf */
 #include <string.h> /* pour strcmp */
 #include <sys/time.h> /* pour itimer */
 #include <time.h>
-#include <errno.h> /* Pour errno */
 #include <fcntl.h>  /* Pour fnctl */
 #include <stdlib.h>     /* Pour EXIT_SUCCESS, malloc */
 #include <unistd.h>     /* Pour sleep */
@@ -61,6 +70,9 @@ int stop = 0; /* necessite d'être en global pour être utilisé et modifié par
 
 WINDOW* fenPrincipale;      /* Plateau du jeu : necessite d'être en global pour l'ajout d'un lemmings à la fin du timer */
 WINDOW* legende;            /* Legende du jeu : necessite d'être en global pour modification à la fin du timer */
+WINDOW * boutonPlus; /* Bouton plus sur la legende : global pour être supprimer par fin_programme() */
+WINDOW * boutonMoins; /* Bouton moins sur la legende : global pour être supprimer par fin_programme() */
+
 int nbLemmings;             /* Nombre de lemmings : necessite d'être en global pour être modifié pour le handler lors d'ajout à la fin de 10s */
 requete_t etatJeu;          /* Etat du jeu : necessite d'être en global pour être modifer par le handler à chaque fin de timer (et donc d'ajout de lemmings) */
 int compteurLemmingEtat=0;  /* Compteur des états : necessite d'être en global pour être connu par le handler ET le main (pour que l'ajout par le clique ou la fin de timer incrément la même variable) */
@@ -68,6 +80,7 @@ int sockTCPSlave=0;           /* Socket TCP du slave : necessite d'être en glob
 int sockTCP=0;              /* Socket TCP du master pour le salve : necessite d'être en global pour être connue par le handler */
 int lesLemmings[NBLEMMINGS]={0}; /* Tableau des lemmings placé : necessite d'être en global pour être connue par le handler pour la modification lors d'ajout de lemmingt à la fin du timer */
 int numLemmingAPlacer=0; /* Numéro du lemming à placé : nécessite d'être en global pour être connue par le handler pour l'utilisation et la modification d'ajout de lemming à la fin du timer */
+int modeJeu;    /* Mode de jeu : nécessite d'être en global pour être connu par le handler lors de l'ajout de lemming. 0 = mode ajout de lemmings allié, 1 = mode ajout de lemmings ennmie, 2 = mode retirer du plateau, 3 = mode explosion, 4 = mode stopper le lemmings */
 
 void handler (int numSignal,siginfo_t*info,void*rien){
     requete_envCMS_t carte;
@@ -76,30 +89,28 @@ void handler (int numSignal,siginfo_t*info,void*rien){
         ncurses_stopper();
         exit(EXIT_SUCCESS);
     }
-    else if(numSignal==SIGALRM && compteurLemmingEtat<5) {
+    else if(numSignal==SIGALRM && nbLemmings>0) {
         int isOk=1;
         int y,x;
         requete_Etat_t etatUnLemming;
         requete_t reponseTCP;
         int numRandom = 0;
         y = x = 0;
-        srand(time(NULL));
         carte = *(requete_envCMS_t*)info->si_value.sival_ptr;
 
         while(isOk){
-            numRandom = rand()%((carte.largeur)*(carte.hauteur));
+            numRandom = rand()%((carte.largeur-1)*(carte.hauteur-1));
             if(carte.cases[numRandom] == '0'){
                 isOk=0;
-                y=(numRandom/LARGEURC)==0?1:(numRandom/LARGEURC);
-                x=(numRandom%LARGEURC)==0?LARGEURC:(numRandom%LARGEURC);
+                y=(numRandom/(carte.largeur-1))==0?1:(numRandom/(carte.largeur-1));
+                x=(numRandom%(carte.largeur-1))==0?(carte.largeur-1):(numRandom%(carte.largeur-1));
 
-                /* ne marche pas */
                 if(sockTCPSlave==0) {
                     /* on est en mode slave */
                     reponseTCP.type = TYPE_AL; /* ajout lemming */
                     reponseTCP.req.r5.numLemming = numLemmingAPlacer;
-                    reponseTCP.req.r5.posX = y;
-                    reponseTCP.req.r5.posY = x;
+                    reponseTCP.req.r5.posX = x;
+                    reponseTCP.req.r5.posY = y;
 
                     if(write(sockTCP,&reponseTCP,sizeof(requete_t)) == -1) {
                         ncurses_stopper();
@@ -109,12 +120,13 @@ void handler (int numSignal,siginfo_t*info,void*rien){
                     reponseTCP.type = 0;
 
                 }else {
+                    /* on est en mode master */
                     /* on envoie les infos du jeu au slave */
+
                     etatUnLemming.valeur = VAL_LEMMING_PLATEAU;
                     etatUnLemming.posY = y;
                     etatUnLemming.posX = x;
 
-                    /* on est en mode master */
                     etatJeu.req.r2.etatLemmings[compteurLemmingEtat++] = etatUnLemming;
 
                     if(write(sockTCPSlave,&etatJeu,sizeof(requete_t)) == -1) {
@@ -129,9 +141,36 @@ void handler (int numSignal,siginfo_t*info,void*rien){
                 cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,BOUTON_PLUS_LEG);
 
                 /* on ajoute la case à la carte */
-                cliqueCarte(fenPrincipale,&nbLemmings,y,x,0);
+                cliqueCarte(fenPrincipale,&carte,&nbLemmings,y,x,modeJeu);
                 setNbLemmings(legende,nbLemmings);
             }
+        }
+    }
+}
+
+void fin_programme() {
+    delwin(fenPrincipale);
+    delwin(boutonPlus);
+    delwin(boutonMoins);
+    delwin(legende);
+    if(sockTCP!=0)close(sockTCP);
+    if(sockTCPSlave!=0)close(sockTCPSlave);
+    ncurses_stopper();
+}
+void handlerMove(int numSignal,siginfo_t*info,void*rien) {
+    requete_envCMS_t carte;
+    if(compteurLemmingEtat>0) {
+        carte = *(requete_envCMS_t*)info->si_value.sival_ptr;
+        deplacementLemmings(fenPrincipale,&carte,&etatJeu,compteurLemmingEtat);
+        /*envoyer ça au slave*/
+        if(write(sockTCPSlave,&etatJeu,sizeof(requete_t)) == -1) {
+            fin_programme();
+            if(errno==ECONNRESET){
+                fprintf(stderr,"La connexion avec le slave à été perdu. Relancez le jeu.\n");
+            }else {
+                perror("Erreur lors de l'écriture de l'état du jeu ");
+            }
+            exit(EXIT_FAILURE);
         }
     }
 }
@@ -175,10 +214,10 @@ char * testArgs(int nbArg, char * valArg[]) {
     return valArg[1];
 }
 
-void resetTimer(timer_t timerid, struct itimerspec its) {
-    its.it_value.tv_sec = 10;
-    its.it_interval.tv_sec = 10;
-    if ((timer_settime(timerid, 0, &its, NULL)) == -1){
+void resetTimer(timer_t timerAddLemming, struct itimerspec itsAddLemming) {
+    itsAddLemming.it_value.tv_sec = 10;
+    itsAddLemming.it_interval.tv_sec = 10;
+    if ((timer_settime(timerAddLemming, 0, &itsAddLemming, NULL)) == -1){
         perror("Erreur lors de l'armement du timer ");
         exit(EXIT_FAILURE);
     }
@@ -215,14 +254,6 @@ int main(int argc, char * argv[])
     int sourisX,sourisY; /* valeur connu lors d'un clique de souris */
     int limitX,limitY; /* limite du clique en X et Y */
 
-    /*  0 = mode ajout de lemmings allié
-        1 = mode ajout de lemmings ennmie
-        2 = mode retirer du plateau
-        3 = mode explosion
-        4 = mode stopper le lemmings
-    */
-    int modeJeu;
-
     struct sockaddr_in adresseServeurUDP;
     struct sockaddr_in adresseMasterTCP;
 
@@ -230,16 +261,28 @@ int main(int argc, char * argv[])
 
     requete_Etat_t etatUnLemming;
 
-    struct sigaction action;
-    struct itimerspec its;/*structure pour intervalle de temps entre chaque appel au signal*/
+    requete_t* oldEtatJeu;
 
-    timer_t timerid;
+    timer_t timerAddLemming;
+    struct sigaction actionAddLemming;
+    struct itimerspec itsAddLemming;/*structure pour intervalle de temps entre chaque appel au signal*/
+
+    timer_t timerMoveLemming;
+    struct sigaction actionMoveLemming;
+    struct itimerspec itsMoveLemming;/*structure pour intervalle de temps entre chaque appel au signal*/
+
     union sigval val;
     struct sigevent event;
+    struct sigevent eventMoveLemming;
 
 
     /* phase d'initialisation */
     if(1) {
+
+        oldEtatJeu = (requete_t*)malloc(sizeof(requete_t));
+
+        srand(time(NULL));
+
         etatJeu.type = TYPE_ETAT_JEU;
 
         val.sival_ptr=&carte;
@@ -247,7 +290,6 @@ int main(int argc, char * argv[])
         event.sigev_notify = SIGEV_SIGNAL; /*SIGEV_SIGNAL va notifier le process avec le signal renseigné dans signo*/
         event.sigev_signo = SIGALRM;
         event.sigev_value = val;
-        
 
         /*  0 = mode ajout de lemmings allié */
         modeJeu = 0;
@@ -269,18 +311,19 @@ int main(int argc, char * argv[])
         }
 
         /*On positionne un gestionnaire sur SIGINT*/
-        action.sa_sigaction = handler;
-        sigemptyset(&action.sa_mask);
-        action.sa_flags = SA_SIGINFO;
-        if(sigaction(SIGINT, &action, NULL) == -1 || sigaction(SIGALRM, &action, NULL) == -1){
+        actionAddLemming.sa_sigaction = handler;
+        sigemptyset(&actionAddLemming.sa_mask);
+        actionAddLemming.sa_flags = SA_SIGINFO;
+        if(sigaction(SIGINT, &actionAddLemming, NULL) == -1 || sigaction(SIGALRM, &actionAddLemming, NULL) == -1){
             perror("Erreur lors du positionnement ");
             exit(EXIT_FAILURE);
         }
 
-        if ((timer_create(CLOCK_REALTIME, &event, &timerid)) == -1){
+        if ((timer_create(CLOCK_REALTIME, &event, &timerAddLemming)) == -1){
             perror("Erreur lors de la création du timer ");
             exit(EXIT_FAILURE);
         }
+        
 
 
         memset(&adresseServeurUDP, 0, sizeof(struct sockaddr_in));
@@ -297,6 +340,25 @@ int main(int argc, char * argv[])
 
     /* On est en mode Master */
     if(strcmp(mode,"MASTER")==0) {
+
+        eventMoveLemming.sigev_notify = SIGEV_SIGNAL; /*SIGEV_SIGNAL va notifier le process avec le signal renseigné dans signo*/
+        eventMoveLemming.sigev_signo = SIGUSR1;
+        eventMoveLemming.sigev_value = val;
+
+        /*On positionne un gestionnaire sur SIGUSR1*/
+        actionMoveLemming.sa_sigaction = handlerMove;
+        sigemptyset(&actionMoveLemming.sa_mask);
+        actionMoveLemming.sa_flags = SA_SIGINFO;
+        if(sigaction(SIGUSR1, &actionMoveLemming, NULL) == -1){
+            perror("Erreur lors du positionnement ");
+            exit(EXIT_FAILURE);
+        }
+
+        if ((timer_create(CLOCK_REALTIME, &eventMoveLemming, &timerMoveLemming)) == -1){
+            perror("Erreur lors de la création du timer ");
+            exit(EXIT_FAILURE);
+        }
+        
         fdCarte = editCarte(argv[5]);
         carte = getStructByFd(fdCarte);
 
@@ -352,11 +414,21 @@ int main(int argc, char * argv[])
             if(reponseTCP.type==TYPE_OKSM) printf("Réponse reçu ! Mise en place du jeu.\n");
 
             /* on set le timer */
-            its.it_value.tv_sec = 10;
-            its.it_value.tv_nsec = 0;
-            its.it_interval.tv_sec = 10;
-            its.it_interval.tv_nsec = 0;
-            if ((timer_settime(timerid, 0, &its, NULL)) == -1){
+            itsAddLemming.it_value.tv_sec = 10;
+            itsAddLemming.it_value.tv_nsec = 0;
+            itsAddLemming.it_interval.tv_sec = 10;
+            itsAddLemming.it_interval.tv_nsec = 0;
+            if ((timer_settime(timerAddLemming, 0, &itsAddLemming, NULL)) == -1){
+                perror("Erreur lors de l'armement du timer ");
+                exit(EXIT_FAILURE);
+            }
+            
+            /* on set le timer */
+            itsMoveLemming.it_value.tv_sec = 1;
+            itsMoveLemming.it_value.tv_nsec = 0;
+            itsMoveLemming.it_interval.tv_sec = 1;
+            itsMoveLemming.it_interval.tv_nsec = 0;
+            if ((timer_settime(timerMoveLemming, 0, &itsMoveLemming, NULL)) == -1){
                 perror("Erreur lors de l'armement du timer ");
                 exit(EXIT_FAILURE);
             }
@@ -366,32 +438,35 @@ int main(int argc, char * argv[])
             ncurses_couleurs();
             /* Vérification de la taille du terminale */
             if((COLS < POSX + LARGEURC) || (LINES < POSY + HAUTEURC)) {
-                ncurses_stopper();
+                fin_programme();
                 fprintf(stderr, "Les dimensions du terminal sont insufisantes : l=%d,h=%d au lieu de l=%d,h=%d\n", COLS, LINES, POSX + LARGEURC, POSY + HAUTEURC);
                 exit(EXIT_FAILURE);
             }
 
             fenPrincipale = newwin(carte.hauteur+1,carte.largeur+1,0,0);
             /* calcule des limites à ne pas dépasser */
-            limitX = carte.largeur-1;
-            limitY = carte.hauteur-1;
+            limitX = carte.largeur-1; /* car on compte le 0 */
+            limitY = carte.hauteur-1; /* car on compte le 0 */
 
             remplireFenCarteStruct(fenPrincipale,&carte);
             box(fenPrincipale, 0, 0);
             wrefresh(fenPrincipale);
 
-            legende = afficherLegende(nbLemmings);
+            legende = afficherLegende(boutonPlus,boutonMoins,nbLemmings);
             wrefresh(legende);
             cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,0);
 
             setSockFlags(sockTCPSlave,SOCK_NONBLOCK);
+
+            /* init de l'état du jeu */
+            initEtatJeu(&etatJeu.req.r2);
 
             while(!stop) {
                 if(nbLemmings!=0) {
                     if((ch = getch() == KEY_MOUSE) && (souris_getpos(&sourisX, &sourisY, NULL) == OK)){
                         /* clique sur carte (+ reset timer) */
                         modeJeu=0;
-                        if(carte.cases[(sourisY*carte.largeur)+sourisX]=='1') continue;
+                        if(carte.cases[(sourisY*carte.largeur)+sourisX]!='0') continue;
                         if((sourisX >= 1) && (sourisX <= limitX) && (sourisY >= 1) && (sourisY <= limitY))   {
                             
                             etatUnLemming.valeur = VAL_LEMMING_PLATEAU;
@@ -401,7 +476,7 @@ int main(int argc, char * argv[])
                             etatJeu.req.r2.etatLemmings[compteurLemmingEtat++] = etatUnLemming;
                         
                             if(write(sockTCPSlave, &etatJeu,sizeof(requete_t)) == -1) {
-                                ncurses_stopper();
+                                fin_programme();
                                 perror("Erreur lors de l'écriture de l'état du jeu ");
                                 exit(EXIT_FAILURE);
                             }
@@ -411,8 +486,8 @@ int main(int argc, char * argv[])
                             /* simulation du clique pour retirer l'affichage de l'indice numLemmingAPlacer */
                             cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,BOUTON_PLUS_LEG);
 
-                            cliqueCarte(fenPrincipale,&nbLemmings,sourisY,sourisX,modeJeu);
-                            resetTimer(timerid,its);
+                            cliqueCarte(fenPrincipale,&carte,&nbLemmings,sourisY,sourisX,modeJeu);
+                            resetTimer(timerAddLemming,itsAddLemming);
                             setNbLemmings(legende,nbLemmings);
                         }
                         if((sourisX >= LARGEURC+2) && (sourisX <= (LARGEURC+2)+8) && (sourisY >= 3) && (sourisY <= 6))   {
@@ -421,34 +496,43 @@ int main(int argc, char * argv[])
                             }
                         /* bougerLemming(WINDOW * fen,requete_t etatJeu,requete_envCMS_t carte) */
                     }
+                    
                 }
 
-                /* on lit la case envoyé par le slave s'il y a lieu */
+                /* envoie de commande par le slave */
                 if(read(sockTCPSlave,&reponseTCP,sizeof(requete_t)) == -1) {
                     if(errno!=EAGAIN && errno!=EWOULDBLOCK) {
-                        ncurses_stopper();
+                        fin_programme();
                         perror("Erreur lors de la lecture des infos envoyé par le MASTER ");
                         exit(EXIT_FAILURE);
                     }
                 }
 
                 if(reponseTCP.type!=0) {
-                    majWindowJeu(fenPrincipale,reponseTCP);
+                    if(reponseTCP.type==TYPE_AL) {
+                        /* on ajoute le lemming au jeu */
+                        etatUnLemming.valeur = VAL_LEMMING_PLATEAU;
+                        etatUnLemming.posY = reponseTCP.req.r5.posY;
+                        etatUnLemming.posX = reponseTCP.req.r5.posX;
+
+                        etatJeu.req.r2.etatLemmings[compteurLemmingEtat++] = etatUnLemming;
+                    }
+                    majWindowJeu(fenPrincipale,&carte,reponseTCP,NULL);
                     reponseTCP.type = 0;
                 }
-            
-                /*majTimerLegende(legende,timerid);*/
+                
+                /*majTimerLegende(legende,timerAddLemming);*/
                 wrefresh(fenPrincipale);
                 wrefresh(legende);
             }
             closeCarte(fdCarte);
-            close(sockTCPSlave);
         }
         
 
     }
     /* On est en mode Slave */
     else if(strcmp(mode,"SLAVE")==0) {
+
         /* Le client est un SLAVE*/
         printf("Mode SLAVE activé.\n");
         requeteUDP.type = TYPE_CSS;
@@ -499,24 +583,25 @@ int main(int argc, char * argv[])
         }
     
         printf("Carte reçu en intégralité.\n");
+
+        /* on set le timer */
+        itsAddLemming.it_value.tv_sec = 10;
+        itsAddLemming.it_value.tv_nsec = 0;
+        itsAddLemming.it_interval.tv_sec = 10;
+        itsAddLemming.it_interval.tv_nsec = 0;
+        if ((timer_settime(timerAddLemming, 0, &itsAddLemming, NULL)) == -1){
+            perror("Erreur lors de l'armement du timer ");
+            exit(EXIT_FAILURE);
+        }
+
         ncurses_initialiser();
         ncurses_souris();
         ncurses_couleurs();
 
         /* Vérification de la taille du terminale */
         if((COLS < POSX + LARGEURC) || (LINES < POSY + HAUTEURC)) {
-            ncurses_stopper();
+            fin_programme();
             fprintf(stderr, "Les dimensions du terminal sont insufisantes : l=%d,h=%d au lieu de l=%d,h=%d\n", COLS, LINES, POSX + LARGEURC, POSY + HAUTEURC);
-            exit(EXIT_FAILURE);
-        }
-
-        /* on set le timer */
-        its.it_value.tv_sec = 10;
-        its.it_value.tv_nsec = 0;
-        its.it_interval.tv_sec = 10;
-        its.it_interval.tv_nsec = 0;
-        if ((timer_settime(timerid, 0, &its, NULL)) == -1){
-            perror("Erreur lors de l'armement du timer ");
             exit(EXIT_FAILURE);
         }
 
@@ -530,13 +615,15 @@ int main(int argc, char * argv[])
         box(fenPrincipale, 0, 0);
         wrefresh(fenPrincipale);
 
-        legende = afficherLegende(nbLemmings);
+        legende = afficherLegende(boutonPlus,boutonMoins,nbLemmings);
         wrefresh(legende);
+        cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,0); 
 
-        /* positionnement de la socketTCP vers le master en non bloquante (pour éviter l'arrêt du prog */
+        /* positionnement de la socketTCP vers le master en non bloquante (pour éviter l'arrêt du prog) */
         setSockFlags(sockTCP,SOCK_NONBLOCK);
 
-        cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,0);
+        /* ancien etat du jeu */
+        initEtatJeu(&(oldEtatJeu->req.r2));
         while(!stop) {
             if(nbLemmings!=0) {
                 if((ch = getch() == KEY_MOUSE) && (souris_getpos(&sourisX, &sourisY, NULL) == OK)){
@@ -551,7 +638,7 @@ int main(int argc, char * argv[])
                         reponseTCP.req.r5.posY = sourisY;
 
                         if(write(sockTCP,&reponseTCP,sizeof(requete_t)) == -1) {
-                            ncurses_stopper();
+                            fin_programme();
                             perror("Erreur lors de l'envoie du nouveau lemming");
                             exit(EXIT_FAILURE);
                         }
@@ -563,46 +650,39 @@ int main(int argc, char * argv[])
                         cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,BOUTON_PLUS_LEG);
 
                         /* envoyé le nouveau lemming au master */
-                        cliqueCarte(fenPrincipale,&nbLemmings,sourisY,sourisX,modeJeu);
-                        resetTimer(timerid,its);
+                        cliqueCarte(fenPrincipale,&carte,&nbLemmings,sourisY,sourisX,modeJeu);
+                        resetTimer(timerAddLemming,itsAddLemming);
                         setNbLemmings(legende,nbLemmings);
                     }
                 if((sourisX >= LARGEURC+2) && (sourisX <= (LARGEURC+2)+8) && (sourisY >= 3) && (sourisY <= 6))   {
-                    if(sourisX >= LARGEURC+2 && sourisX <= (LARGEURC+2)+4) cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,0);
-                    else if(sourisX >= (LARGEURC+2)+4 && sourisX <= (LARGEURC+2)+8) cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,1);
+                    if(sourisX >= LARGEURC+2 && sourisX <= (LARGEURC+2)+4) cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,BOUTON_PLUS_LEG);
+                    else if(sourisX >= (LARGEURC+2)+4 && sourisX <= (LARGEURC+2)+8) cliqueNumLemming(legende,&numLemmingAPlacer,lesLemmings,BOUTON_MOINS_LEG);
                     }
                 }
             }
 
             if(read(sockTCP, &reponseTCP, sizeof(requete_t)) == -1) {
-                if(errno==EAGAIN || errno==EWOULDBLOCK) {
-                    continue;
+                if(errno!=EAGAIN && errno!=EWOULDBLOCK) {
+                    fin_programme();
+                    perror("Erreur lors de la lecture des infos envoyé par le MASTER ");
+                    exit(EXIT_FAILURE);
                 }
-                ncurses_stopper();
-                perror("Erreur lors de la lecture des infos envoyé par le MASTER ");
-                exit(EXIT_FAILURE);
             }
 
 
             if(reponseTCP.type!=0) {
-                majWindowJeu(fenPrincipale,reponseTCP);
+                majWindowJeu(fenPrincipale,&carte,reponseTCP,oldEtatJeu); 
+                oldEtatJeu->req.r2 = copyEtatJeu(reponseTCP.req.r2);
                 reponseTCP.type = 0;
             }
 
-            /*majTimerLegende(legende,timerid);*/
+            /*majTimerLegende(legende,timerAddLemming);*/
             wrefresh(fenPrincipale);
             wrefresh(legende);
         }
-
-
     }
 
 
-    delwin(fenPrincipale);
-    delwin(legende);
-    close(sockTCP);
-    close(sockUDP);
-
-    ncurses_stopper();
+    fin_programme();
     return EXIT_SUCCESS;
     }
