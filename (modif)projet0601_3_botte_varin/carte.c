@@ -123,8 +123,7 @@ void createDefaultCarte(int fdCarte)
   * @param nomCarte le nom de la carte à créer/charger
   * @return l'entier du descripteur du fichier
   **/
-int editCarte(const char * nomCarte)
-	{
+int editCarte(const char * nomCarte) {
 	int fdCarte=0;
   char pathVanilla[30] = "./cartes/";
   char pathCpy[30] = "./cartes/";
@@ -133,8 +132,7 @@ int editCarte(const char * nomCarte)
   fullpath = realpath(pathCpy, NULL);
 
 	/* Ouverture et/ou création du fichier de la carte */
-	if((fdCarte = open(fullpath, O_RDWR, S_IRUSR|S_IWUSR)) == -1)
-		{
+	if((fdCarte = open(fullpath, O_RDWR, S_IRUSR|S_IWUSR)) == -1){
 		/* si on est ici la carte n'existe pas */
     /* création du lien de la futur carte */
     fullpath = realpath(pathVanilla, NULL);
@@ -150,6 +148,27 @@ int editCarte(const char * nomCarte)
 		}
 	return fdCarte;
 	}
+
+
+int nbLemmingEtatJeu(requete_EtatJeu_t etatJeu) {
+  int i;
+  int nbLemming=0;
+  for(i=0;i<NBLEMMINGS*2;i++) {
+    if(etatJeu.etatLemmings[i].valeur==VAL_LEMMING_PLATEAU) nbLemming++;
+    else if(etatJeu.etatLemmings[i].valeur==VAL_LEMMING_RETIRE) nbLemming--;
+    }
+  return nbLemming;
+}
+
+
+void initEtatJeu(requete_EtatJeu_t *etatJeu) {
+  int i;
+  for(i=0;i<NBLEMMINGS*2;i++) {
+    etatJeu->etatLemmings[i].valeur = '0';
+    etatJeu->etatLemmings[i].posY = 0;
+    etatJeu->etatLemmings[i].posX = 0;
+  }
+}
 
 /**
   * Créer la fenètre de la carte
@@ -176,7 +195,7 @@ void remplireFenCarteStruct(WINDOW * fen,requete_envCMS_t *carte) {
   int i,j;
   for(i=0;i<carte->hauteur;i++) {
     for(j=0;j<carte->largeur;j++) {
-      val = carte->cases[(i*LARGEURC)+j];
+      val = carte->cases[(i*carte->largeur)+j];
       wattron(fen,COLOR_PAIR(atoi(&val)+10));
       mvwaddch(fen,i,j,val);
       wattroff(fen,COLOR_PAIR(atoi(&val)+10));
@@ -184,29 +203,71 @@ void remplireFenCarteStruct(WINDOW * fen,requete_envCMS_t *carte) {
   }
 }
 
+requete_envCMS_t copyCarte(requete_envCMS_t carte) {
+  requete_envCMS_t newCarte;
+  int i,j;
+  newCarte.largeur = carte.largeur;
+  newCarte.hauteur = carte.hauteur;
+  newCarte.cases = (unsigned char*)malloc(carte.largeur*carte.hauteur);
+  for(i=0;i<carte.hauteur;i++) {
+    for(j=0;j<carte.largeur;j++) {
+      newCarte.cases[(i*carte.largeur)+j] = carte.cases[(i*carte.largeur)+j];
+    }
+  }
+  return newCarte;
+}
+
+requete_EtatJeu_t copyEtatJeu(requete_EtatJeu_t etatJeu) {
+  requete_EtatJeu_t newEtatJeu;
+  int i;
+  for(i=0;i<NBLEMMINGS*2;i++) {
+    newEtatJeu.etatLemmings[i].valeur = etatJeu.etatLemmings[i].valeur;
+    newEtatJeu.etatLemmings[i].posY = etatJeu.etatLemmings[i].posY;
+    newEtatJeu.etatLemmings[i].posX = etatJeu.etatLemmings[i].posX;
+  }
+  return newEtatJeu;
+}
 
 /**
   * Remplie la fenetre passer en paramètre avec les nouvelles informations
   * @param fen la fenetre de la carte à modifier
   * @param req la structure de l'état des lemmings
+  * @param nbLemmingPlateau savoir combien il y a de lemming sur le plateau (que ce soit allié ou ennemi)
   **/
-void majWindowJeu(WINDOW *fen,requete_t requete) {
-  int k=0;
+void majWindowJeu(WINDOW *fen,requete_envCMS_t *carte, requete_t requete,requete_t* oldEtatJeu) {
+  int k;
+  char valCaseVoulue = 0;
+  char valeurLemming = 0; /* allié ou ennemi (2 ou 3) */
+  requete_envCMS_t oldCarte;
   switch(requete.type) {
     case TYPE_ETAT_JEU:
-      while(k!=(NBLEMMINGS*2)) {
-        if(requete.req.r2.etatLemmings[k].valeur==VAL_LEMMING_PLATEAU)
-          addLemings(fen,VAL_LEMMING_ENNEMI,requete.req.r2.etatLemmings[k].posY,requete.req.r2.etatLemmings[k].posX);
-        k++;
+      oldCarte = copyCarte((*carte));
+      /* on supp tous les lemmings pour les remettre */
+      suppAllLemmings(fen,carte);
+      for(k=0;k<nbLemmingEtatJeu(requete.req.r2);k++) {
+        if(requete.req.r2.etatLemmings[k].valeur==VAL_LEMMING_PLATEAU) {
+          valeurLemming = oldCarte.cases[(oldEtatJeu->req.r2.etatLemmings[k].posY*oldCarte.largeur)+oldEtatJeu->req.r2.etatLemmings[k].posX];
+          
+          /* si ça vaut 0 c'est qu'on a recu l'état de jeu pour ajouter un lemming ennemi */
+          if(valeurLemming=='0')valeurLemming=VAL_LEMMING_ENNEMI;
+          else valeurLemming = valeurLemming-'2';
+
+          valCaseVoulue = mvwinch(fen,requete.req.r2.etatLemmings[k].posY,requete.req.r2.etatLemmings[k].posX) & A_CHARTEXT;
+          if(valCaseVoulue=='0') {
+            addLemings(fen,carte,valeurLemming,requete.req.r2.etatLemmings[k].posY,requete.req.r2.etatLemmings[k].posX);  
+          }
+        }
+        else if(requete.req.r2.etatLemmings[k].valeur==VAL_LEMMING_RETIRE){
+          suppLemmings(fen,carte,requete.req.r2.etatLemmings[k].posY,requete.req.r2.etatLemmings[k].posX); 
+        } 
       }
       break;
     case TYPE_AL:
-      addLemings(fen,VAL_LEMMING_ENNEMI,requete.req.r5.posY,requete.req.r5.posX);
+      addLemings(fen,carte,VAL_LEMMING_ENNEMI,requete.req.r5.posY,requete.req.r5.posX);
       break;
   }
   wrefresh(fen);
 }
-
 /**
   * Ajouter un lemmings sur le fenêtre fen
   * @param fen la fenetre de la carte à modifier
@@ -214,11 +275,51 @@ void majWindowJeu(WINDOW *fen,requete_t requete) {
   * @param y position Y par rapport à la fenetre
   * @param x position X par rapport à la fenetre
   **/
-void addLemings(WINDOW* fen,int type,int y,int x) {
+void addLemings(WINDOW* fen,requete_envCMS_t *carte,int type,int y,int x) {
+  /* on modifie la carte en ajoutant le lemming */
+  carte->cases[(y*carte->largeur)+x] = '2'+type;
+  
+
   wattron(fen,COLOR_PAIR(8+type));
-  mvwaddch(fen,y,x,'2'+type);
+  mvwaddch(fen,y,x,carte->cases[(y*carte->largeur)+x]);
   wattroff(fen,COLOR_PAIR(8+type));
+  wrefresh(fen);
 }
+
+/**
+  * Retirer un lemmings sur le fenêtre fen
+  * @param fen la fenetre de la carte à modifier
+  * @param type lemmings allié ou ennemi (0 ou 1)
+  * @param y position Y par rapport à la fenetre
+  * @param x position X par rapport à la fenetre
+  **/
+void suppLemmings(WINDOW * fen,requete_envCMS_t *carte,int y,int x) {
+  carte->cases[(y*carte->largeur)+x] = '0';
+  
+  wattron(fen,COLOR_PAIR(10));
+  mvwaddch(fen,y,x,carte->cases[(y*carte->largeur)+x]);
+  wattroff(fen,COLOR_PAIR(10));
+  wrefresh(fen);
+}
+
+/**
+ * Supprime tous les lemmings de la carte (pour maj de la fenetre) 
+ */
+void suppAllLemmings(WINDOW * fen,requete_envCMS_t *carte) {
+  int i,j;
+  for(i=0;i<carte->hauteur;i++) {
+    for(j=0;j<carte->largeur;j++) {
+      if(carte->cases[(i*carte->largeur)+j]>='2') {
+        carte->cases[(i*carte->largeur)+j] = '0';
+
+        wattron(fen,COLOR_PAIR(10));
+        mvwaddch(fen,i,j,'0');
+        wattroff(fen,COLOR_PAIR(10));
+      }
+    }
+  }
+}
+
 
 /**
   * Gére le fait qu'on clique sur la carte
@@ -228,12 +329,21 @@ void addLemings(WINDOW* fen,int type,int y,int x) {
   * @param posX position X de la case
   * @param modeJeu connaitre le mode de jeu (explosion,ajout plateau,blocage,retirer plateau)
   **/
-void cliqueCarte(WINDOW*fen,int*nbLemmings,int posY,int posX,int modeJeu) {
+void cliqueCarte(WINDOW*fen,requete_envCMS_t *carte,int*nbLemmings,int posY,int posX,int modeJeu) {
   switch(modeJeu) {
     case 0:
       if((*nbLemmings)>0) {
-        addLemings(fen,0,posY,posX);
+        /*printw("1 : %d   ",(*nbLemmings));*/
+        addLemings(fen,carte,VAL_LEMMING_ALLIE,posY,posX);
         (*nbLemmings)--;
+      }
+      break;
+    /*cas d'un retrait*/  
+    case 1:
+      if((*nbLemmings)<5){
+       /* printw("2 : %d   ",(*nbLemmings));*/
+        suppLemmings(fen,carte,posY,posX);
+        (*nbLemmings)++;
       }
       break;
   }
@@ -243,72 +353,110 @@ void cliqueCarte(WINDOW*fen,int*nbLemmings,int posY,int posX,int modeJeu) {
   * Fait se déplacer les lemmings de manière aléatoire
   *
   *
-  **/
+  *
 void deplacementLemmings(requete_envCMS_t carte, WINDOW* fen){
   int i = 0;
   int x = 0;
   int y = 0;
 
-  /*ncurses_stopper();*/
+  ncurses_stopper();
 
   for(i = 0; i < (LARGEURC*HAUTEURC); i++){
-    /*printf("i %d : cases%d\n",i,carte.cases[i]);*/
+    printf("i %d : cases%d\n",i,carte.cases[i]);
     
-    /*printf("case[%d] : %u\n",i,carte.cases[i]);*/
-    
+    printf("case[%d] : %u\n",i,carte.cases[i]);
+  
     if(carte.cases[i] > '0'){
-      /*printf("dans condition i : %d\n",i);*/
+      printf("dans condition i : %d\n",i);
       y=(i/LARGEURC)==0?1:(i/LARGEURC);
       x=(i%LARGEURC)==0?LARGEURC:(i%LARGEURC);
       modifValeurCaseLemming(fen,carte, x, y);
     }
   }
  
-}
+}*/
+
 /**
   * Fait se déplacer les lemmings de manière aléatoire
-  *
-  *
+  * @param fen la fenêtre du jeu pour modifier l'affichage
+  * @param carte la carte pour savoir les valeurs des cases (savoir allié ou ennemi)
+  * @param etatJeu connaître les position de chacun des cases et modification pour envoie au slave
+  * @param sockTCPSlave socket TCP pour envoyer l'état du jeu à la fin du déplacement de tous les lemmings
+  * @param nbLemmingPlateau savoir combien il y a de lemming sur le plateau (que ce soit allié ou ennemi)
   **/
-void modifValeurCaseLemming(WINDOW * fen,requete_envCMS_t carte, int x, int y) {
+void deplacementLemmings(WINDOW * fen,requete_envCMS_t* carte, requete_t *etatJeu, int nbLemmingPlateau) {
+  int i;
+  unsigned char val;
+  unsigned char valLemming;
   int dir=0;
-  int pos=y==0?x:y*carte.largeur+x;
+  int pos=0;
   int oldPos=0;
   int ok=0;
-  unsigned char val;
+  int y,x=y=0;
 	srand(time(NULL));
   /*
     * Direction choisi aléatoirement
     * 0 pour haut, 1 pour bas, 2 pour gauche, 3 pour droite
     */  
   /*printf("Je bouge ! %d;%d;%d\n",*position/30,*position%30,*position);*/
-  do {
-    dir=rand()%4;
-    oldPos=pos;
-    switch(dir) {
-      case 0:
-        pos-=carte.largeur; /*haut*/ 
-        break;
-      case 1:
-        pos+=carte.largeur; /*bas*/ 
-        break;
-      case 2:
-        pos-=1; /*gauche*/ 
-        break;
-      case 3:
-        pos+=1; /*droite*/ 
-        break;
-    }
-    if(pos<0 || pos>(LARGEURC*HAUTEURC)) {pos=oldPos;continue;}
-    val = carte.cases[pos];
-    if(val>'0') {pos=oldPos;continue;}
-    if(val=='0') {
-      addLemings(fen,VAL_LEMMING_ALLIE,y,x);
-       /*envoyer ça au master*/ 
-      ok=1;
-    }
-    /*printf("(Type;CaseTypeNew;pos) -> (%d;%d;%d)\n",val,carte.cases[pos],pos);*/
-  }while(!ok);
+  for(i=0;i<nbLemmingPlateau;i++) {
+    y=etatJeu->req.r2.etatLemmings[i].posY;
+    x=etatJeu->req.r2.etatLemmings[i].posX;
+    pos=y==0?x:((y*carte->largeur)+x);
+    do {
+      dir=rand()%4;
+      oldPos=pos;
+      switch(dir) {
+        case 0:
+          pos-=carte->largeur; /*haut*/ 
+          break;
+        case 1:
+          pos+=carte->largeur; /*bas*/ 
+          break;
+        case 2:
+          pos-=1; /*gauche*/ 
+          break;
+        case 3:
+          pos+=1; /*droite*/ 
+          break;
+      }
+      if(pos<0 || pos>(carte->largeur*carte->hauteur)) {pos=oldPos;continue;}
+      val = carte->cases[pos];
+      if(val>'0') {pos=oldPos;continue;}
+      if(val=='0') {
+        if(etatJeu->req.r2.etatLemmings[i].valeur==VAL_LEMMING_PLATEAU) {
+          /* on retire le lemming de son ancienne position */
+          valLemming = mvwinch(fen,y,x) & A_CHARTEXT;
+          suppLemmings(fen,carte,y,x);
+
+
+          /*printw("1=%d;%d;%d;%d;%d        ",y,x,oldPos,i,nbLemmingPlateau);*/
+
+          /* on calcule la nouvelle position */
+          y=(pos/(carte->largeur))==0?1:(pos/(carte->largeur));
+          x=(pos%(carte->largeur))==0?(carte->largeur):(pos%(carte->largeur));
+          /*printw("2=%d;%d;%d;%c\n",y,x,pos,valLemming);*/
+          addLemings(fen,carte,valLemming-'2',y,x);
+
+          etatJeu->req.r2.etatLemmings[i].posY = y;
+          etatJeu->req.r2.etatLemmings[i].posX = x;
+
+          ok=1;
+        }
+        if(etatJeu->req.r2.etatLemmings[i].valeur==VAL_LEMMING_RETIRE) {
+          /* on retire le lemming de son ancienne position */
+          printw("i : %d",i);
+          suppLemmings(fen,carte,y,x);
+
+          etatJeu->req.r2.etatLemmings[i].posY = 0;
+          etatJeu->req.r2.etatLemmings[i].posX = 0;
+
+          ok=1;
+        }
+      }
+      /*printf("(Type;CaseTypeNew;pos) -> (%d;%d;%d)\n",valLemming,carte.cases[pos],pos);*/
+    }while(!ok);
+  }
 
   /*position=pos;*/
   wrefresh(fen);
@@ -343,12 +491,10 @@ void deplaceInFileTo(int fdCarte,int y,int x)
 
 /**
   * Permet l'affichage de la légende une fois le jeu lancé
-  * @param nbLemmings nombre de lemmings nécessaire afin de construire la légende  
+  * @param nbLemmings nombre de dlemmings nécessaire afin de construire la légende  
   **/
-WINDOW* afficherLegende(int nbLemmings) {
+WINDOW* afficherLegende(WINDOW * boutonPlus,WINDOW * boutonMoins,int nbLemmings) {
     WINDOW * legende;
-    WINDOW * boutonPlus;
-    WINDOW * boutonMoins;
 
     legende = newwin(12,27,0,LARGEURC+1);
     wbkgd(legende,COLOR_PAIR(15));
